@@ -1,15 +1,15 @@
 /*
  * WB UI CONTROL
- * by Qige from 6Harmoncs @ 2016.11.06
- *
- *
+ * by Qige <qigezhao@gmail.com> from 6Harmoncs since 2016.11.06
  *
  * pay attention to these conditions
  * 1. when edit, should not echo "loading"
  * 2. when edit, should not change the value from uart
- * 3. 
+ *
+ * v1.6c.20180414 change cellphone number, add "loading" string comments
  */
 
+// uncomment line below to enable uart debugging
 //#define UART_PRINT_PARSE_RESULT
 
 
@@ -31,31 +31,34 @@ extern uchar std_buffer[];
 
 
 //* prototype
-//#include "wb_proto.h"
 #include "wb_ui.h"
 
-
+// LCD position code
 #define LCD_EDIT_CHANNEL_MARK_POS	0x45
 #define LCD_EDIT_CHANBW_MARK_POS	0x4B
 #define LCD_EDIT_REGION_MARK_POS	0x4F
 #define LCD_EDIT_TXPWR_MARK_POS		0x4B
 #define LCD_EDIT_MODE_MARK_POS		0x4F
 
+// button mask, low signal means pressed
 #define BTN_DETECT_MASK 			0x1E
-#define BTN_1_MASK 					0x1C	// M
-#define BTN_2_MASK 					0x1A	// +
-#define BTN_3_MASK 					0x16	// -
-#define BTN_4_MASK 					0x0E	// S
-#define BTN_5_MASK 					0x0C	// S M, exit busy/loading
-#define BTN_6_MASK					0x12	// + -, 
-#define BTN_7_MASK					0x14	// M -
-#define BTN_8_MASK					0x0A	// S +
-#define BTN_9_MASK					0x18	// M +
-#define BTN_10_MASK					0x06	// S -
+#define BTN_M_MASK 					0x1C	// M
+#define BTN_PLUS_MASK				0x1A	// +
+#define BTN_MINUS_MASK				0x16	// -
+#define BTN_SET_MASK				0x0E	// S
 
+// 2 buttons pressed combination
+#define BTN_DEBUG_MASK				0x0C	// S M, debugging, exit busy/loading
+#define BTN_X1_MASK					0x12	// + -, reboot
+#define BTN_X2_MASK					0x14	// M -
+#define BTN_X3_MASK					0x0A	// S +
+#define BTN_X4_MASK					0x18	// M +
+#define BTN_X5_MASK					0x06	// S -
 
+// kills key jitter
 #define BTN_DELAY 					20000
 
+// button val/names
 enum UI_BTN {
 	UI_BTN_NONE = 0,
 	UI_BTN_SW = 1,
@@ -70,6 +73,7 @@ enum UI_BTN {
 	UI_BTN_X5
 };
 
+// major view code
 enum UI_STAT {
 	UI_LOADING,
 	UI_PRINT_PAGE_STS,
@@ -81,6 +85,7 @@ enum UI_STAT {
 	UI_PRINT_EDIT_MODE
 };
 
+// major mode
 enum GWS_MODE {
 	GWS_MODE_MESH = 0,
 	GWS_MODE_STA,
@@ -97,38 +102,46 @@ enum GWS_MODE {
 
 #define LCD_LINE_LENGTH			16
 
+// min/max txpwr range
 #define GWS_TXPWR_MIN			0
 #define GWS_TXPWR_MAX			40
 
+// region 1
 #define GWS_R1FREQ_START		474
 #define GWS_R1CHAN_BW			8
 #define GWS_R1CH_MIN			21
 #define GWS_R1CH_MAX			60
 
+// region 0
 #define GWS_R0FREQ_START		473
 #define GWS_R0CHAN_BW			6
 #define GWS_R0CH_MIN			14
 #define GWS_R0CH_MAX			60
 
+// chanbw limits
 #define GWS_CHANBW_MIN			1
 #define GWS_CHANBW_MAX			24
 
+// default values
 #define GWS_REGION_DFL			1
 #define GWS_CHANNEL_DFL			GWS_R1CH_MIN
 #define GWS_CHANBW_DFL			8
 #define GWS_RXGAIN_DFL			10
 
+// mode val/name limits
 #define GWS_MODE_MIN			0
 #define GWS_MODE_MAX			3
 
+// noise limits
 #define GWS_NOISE_WP			-101
 #define GWS_NOISE_MIN			-110
 
 
-static uint ui_host_timeout 	= 0;
-static uint ui_screen = UI_LOADING, ui_screen_page = 0;
-static uint ui_screen_echo_change_counter = 0;
-static uchar gws_cmd[STD_BUFFER_LENGTH] = {""};
+static uint ui_host_timeout 				= 0;
+static uint ui_screen 						= UI_LOADING;
+static uint ui_screen_page 					= 0;
+static uint ui_screen_echo_change_counter 	= 0;
+static uchar gws_cmd[STD_BUFFER_LENGTH] 	= {""};
 static struct {
 	int	is_data_changed;
 
@@ -142,8 +155,8 @@ static struct {
 	int	txpwr;
 	int	is_tx_on;
 
-	int		signal[WBP_SIGNAL_MAX];
-	int		noise;
+	int	signal[WBP_SIGNAL_MAX];
+	int	noise;
 } gws_ui;
 
 struct {
@@ -159,10 +172,10 @@ struct {
 
 struct {
 	uint is_data_changed;
-	int	 _signal_[WBP_SIGNAL_MAX];
+	int	_signal_[WBP_SIGNAL_MAX];
 } gws_read_sig;
 
-
+// when uart debugging enabled
 void _debug_buffer(uint x)
 {
 	uint buffer_length = readDataLength();
@@ -175,14 +188,16 @@ void _debug_buffer(uint x)
 }
 
 
-extern void delay(uint x);
-
 //* main function
 //* - decide ui display
 void ui_calc_ui(void)
 {
-	uint i, btn_no = 0, buffer_length = 0, wbp_data_move = 0;
-	uchar act[STD_BUFFER_LENGTH] = {""}, wbp_data[STD_BUFFER_LENGTH] = {""};
+	uint i;
+	uint btn_no = 0;
+	uint buffer_length = 0;
+	uint wbp_data_move = 0;
+	uchar act[STD_BUFFER_LENGTH] = {""};
+	uchar wbp_data[STD_BUFFER_LENGTH] = {""};
 
 	btn_no = ui_detect_btn();
 	ui_calc_pages(btn_no);
@@ -190,6 +205,7 @@ void ui_calc_ui(void)
 
 	delay(2);
 	buffer_length = readDataLength();
+
 	delay(2);
 	if (buffer_length > 0) {
 		//_debug_buffer(1);
@@ -221,15 +237,16 @@ void ui_calc_ui(void)
 
 
 	if (ui_screen < UI_PRINT_EDIT_TXPWR) {
+		// not edit mode
 		if (gws_read_sts.is_data_changed) {
-			gws_ui.mode = gws_read_sts.mode;
-			gws_ui.chanbw = gws_read_sts.chanbw;
-			gws_ui.region = (gws_read_sts.region != 0 ? 1 : 0);
-			gws_ui.channel = gws_read_sts.channel;
-			gws_ui.txpwr = gws_read_sts.txpwr;
+			gws_ui.mode 	= gws_read_sts.mode;
+			gws_ui.chanbw 	= gws_read_sts.chanbw;
+			gws_ui.region 	= (gws_read_sts.region != 0 ? 1 : 0);
+			gws_ui.channel 	= gws_read_sts.channel;
+			gws_ui.txpwr 	= gws_read_sts.txpwr;
 			gws_ui.is_tx_on = gws_ui.txpwr > 0 ? 1 : 0;
-			gws_ui.rxgain = gws_read_sts.rxgain;
-			gws_ui.noise = gws_read_sts._noise_ + GWS_NOISE_WP;
+			gws_ui.rxgain 	= gws_read_sts.rxgain;
+			gws_ui.noise 	= gws_read_sts._noise_ + GWS_NOISE_WP;
 	
 			gws_read_sts.is_data_changed = 0;
 
@@ -247,8 +264,13 @@ void ui_calc_ui(void)
 				} else {
 					gws_ui.signal[i] = gws_read_sig._signal_[i] + gws_ui.noise;
 				}
-				if (gws_ui.signal[i] > WBP_SIGNAL_VALUE_MAX) gws_ui.signal[i] = WBP_SIGNAL_VALUE_MAX;
-				if (gws_ui.signal[i] < GWS_NOISE_MIN) gws_ui.signal[i] = GWS_NOISE_MIN;
+				// value limits
+				if (gws_ui.signal[i] > WBP_SIGNAL_VALUE_MAX) {
+					gws_ui.signal[i] = WBP_SIGNAL_VALUE_MAX;
+				}
+				if (gws_ui.signal[i] < GWS_NOISE_MIN) {
+					gws_ui.signal[i] = GWS_NOISE_MIN;
+				}
 			}
 
 			gws_read_sig.is_data_changed = 0;
@@ -272,15 +294,14 @@ void ui_calc_ui(void)
 		}
 	}
 
+	// enter "loading" when no data received for a while
 	ui_host_timeout ++;
-	if (ui_host_timeout > UI_UART_TIMEOUT) {
-		ui_screen = UI_LOADING;
-	}
-
+	if (ui_host_timeout > UI_UART_TIMEOUT) ui_screen = UI_LOADING;
 
 	ui_screen_echo_change_counter ++;
 }
 
+// calculate page val/name when button pressed
 static void ui_calc_pages(uint btn)
 {
 	uint flag = 0;
@@ -336,6 +357,8 @@ static void ui_calc_pages(uint btn)
 			sprintf(gws_cmd, "\r\n+wbcmd:gwsmin\r\n");
 			break;
 	}
+	
+	// send command if buttons' combination did pressed
 	if (flag) {
 		uart_send(gws_cmd);
 		memset(gws_cmd, 0, sizeof(gws_cmd));
@@ -348,7 +371,9 @@ static void ui_echo_page(void)
 {
 	static uint i = 0;
 	uint gws_freq = 0;
-	uchar l1[LCD_LINE_LENGTH+1] = {""}, l2[LCD_LINE_LENGTH+1] = {""}, edit_mark_pos = 0;
+	uchar l1[LCD_LINE_LENGTH+1] = {""};
+	uchar l2[LCD_LINE_LENGTH+1] = {""};
+	uchar edit_mark_pos = 0;
 
 	if (gws_ui.region) {
 		if (gws_ui.channel < GWS_R1CH_MIN) gws_ui.channel = GWS_R1CH_MIN;
@@ -401,12 +426,14 @@ static void ui_echo_page(void)
 			break;
 		case UI_PRINT_PAGE_GWS:
 			//sprintf(l1, "Tx: %2d dBm, %4s", gws_ui.txpwr, gws_ui.is_tx_on > 0 ? "ON" : "OFF");
-			sprintf(l1, "Tx: %2d/%3dM, %2dM", gws_ui.channel, gws_freq, gws_ui.chanbw);
+			sprintf(l1, "Tx: %2d/%3dM, %2dM", gws_ui.channel, 
+				gws_freq, gws_ui.chanbw);
 			if (gws_ui.noise < GWS_NOISE_MIN) gws_ui.noise = GWS_NOISE_MIN;
 			if (gws_ui.signal[ui_screen_page] >= 99) {
 				sprintf(l2, "Rx: *> %4d gain", gws_ui.rxgain);
 			} else {
-				sprintf(l2, "Rx: %d> %d/%-d dBm", ui_screen_page+1, gws_ui.signal[ui_screen_page], gws_ui.noise);
+				sprintf(l2, "Rx: %d> %d/%-d dBm", ui_screen_page+1, 
+					gws_ui.signal[ui_screen_page], gws_ui.noise);
 			}
 			edit_mark_pos = 0;
 			break;
@@ -414,17 +441,21 @@ static void ui_echo_page(void)
 		default:
 			switch(i / 32 % 3) {
 				case 2:
+					// each line must be exactly 16 chars
 					sprintf(l1, "  Tech Support  ");
-					sprintf(l2, "+86-135-11053556"); 
+					sprintf(l2, "+86-138-01282877"); 
 					break;
 				case 1:
+					// each line must be exactly 16 chars
 					sprintf(l1, "     6WiLink    ");
 					sprintf(l2, " +86-10-82825799"); 
 					break;
 				case 0: 
 				default:
+					// each line must be exactly 16 chars
 					sprintf(l1, "      Model     ");
-					sprintf(l2, "  ARN3450KP24C  "); 
+					// 31 chip, 33 txpwr, Dawen, bw 24
+					sprintf(l2, "  ARN3133DW24P  "); 
 					break;
 			}
 			edit_mark_pos = 0;
@@ -442,24 +473,25 @@ static void ui_echo_page(void)
 	i ++;
 }
 
+// 
 static uint ui_detect_btn(void)
 {
 	uint btn_pressed = 0;
 	uchar btn;
 	btn = P2 & BTN_DETECT_MASK;
 
-	if(btn == BTN_10_MASK)	btn_pressed = 10;
-	if(btn == BTN_9_MASK)	btn_pressed = 9;
-	if(btn == BTN_8_MASK)	btn_pressed = 8;
-	if(btn == BTN_7_MASK)	btn_pressed = 7;
-	if(btn == BTN_6_MASK)	btn_pressed = 6;
-	if(btn == BTN_5_MASK)	btn_pressed = 5;
-	if(btn == BTN_4_MASK)	btn_pressed = 4;
-	if(btn == BTN_3_MASK)	btn_pressed = 3;
-	if(btn == BTN_2_MASK)	btn_pressed = 2;
-	if(btn == BTN_1_MASK)	btn_pressed = 1;
+	if(btn == BTN_X5_MASK)		btn_pressed = UI_BTN_X5;
+	if(btn == BTN_X4_MASK)		btn_pressed = UI_BTN_X4;
+	if(btn == BTN_X3_MASK)		btn_pressed = UI_BTN_X3;
+	if(btn == BTN_X2_MASK)		btn_pressed = UI_BTN_X2;
+	if(btn == BTN_X1_MASK)		btn_pressed = UI_BTN_X1;
+	if(btn == BTN_DEBUG_MASK)	btn_pressed = UI_BTN_DEBUG;
+	if(btn == BTN_SET_MASK)		btn_pressed = UI_BTN_SET;
+	if(btn == BTN_MINUS_MASK)	btn_pressed = UI_BTN_MINUS;
+	if(btn == BTN_PLUS_MASK)	btn_pressed = UI_BTN_PLUS;
+	if(btn == BTN_M_MASK)		btn_pressed = UI_BTN_SW;
 
-	if (btn_pressed > 0)	delay(100);
+	if (btn_pressed > 0) delay(100);
 	return btn_pressed;
 }
 
@@ -479,9 +511,7 @@ static void ui_calc_scrren_echo_sts(uint btn)
 		ui_screen_echo_change_counter = 1;
 	}
 
-	if (btn == UI_BTN_SET) {
-		ui_screen = UI_PRINT_EDIT_TXPWR;
-	}
+	if (btn == UI_BTN_SET) ui_screen = UI_PRINT_EDIT_TXPWR;
 }
 static void ui_calc_scrren_echo_gws(uint btn)
 {
@@ -499,8 +529,7 @@ static void ui_calc_scrren_echo_gws(uint btn)
 		ui_screen_echo_change_counter = 1;
 	}
 
-	if (btn == UI_BTN_SET)
-		ui_screen = UI_PRINT_EDIT_TXPWR;
+	if (btn == UI_BTN_SET) ui_screen = UI_PRINT_EDIT_TXPWR;
 }
 static void ui_calc_screen_edit_txpwr(uint btn)
 {
@@ -516,8 +545,8 @@ static void ui_calc_screen_edit_txpwr(uint btn)
 		gws_ui.txpwr -= (gws_ui.txpwr > 30 ? 1 : 3); // 31 - 1 = 30; 30 - 1 = 29
 		gws_ui.is_data_changed = 1;
 	}
-	if (gws_ui.txpwr >= GWS_TXPWR_MAX)			gws_ui.txpwr = GWS_TXPWR_MAX;
-	if (gws_ui.txpwr <= GWS_TXPWR_MIN)			gws_ui.txpwr = GWS_TXPWR_MIN;
+	if (gws_ui.txpwr >= GWS_TXPWR_MAX) gws_ui.txpwr = GWS_TXPWR_MAX;
+	if (gws_ui.txpwr <= GWS_TXPWR_MIN) gws_ui.txpwr = GWS_TXPWR_MIN;
 	if (btn == UI_BTN_SET) {
 		ui_screen = UI_PRINT_PAGE_STS;
 		if (gws_ui.is_data_changed) {
@@ -543,11 +572,11 @@ static void ui_calc_screen_edit_channel(uint btn)
 		gws_ui.is_data_changed = 1;
 	}
 	if (gws_ui.region) {
-		if (gws_ui.channel < GWS_R1CH_MIN) 	gws_ui.channel = GWS_R1CH_MIN;
-		if (gws_ui.channel > GWS_R1CH_MAX) 	gws_ui.channel = GWS_R1CH_MAX;
+		if (gws_ui.channel < GWS_R1CH_MIN) gws_ui.channel = GWS_R1CH_MIN;
+		if (gws_ui.channel > GWS_R1CH_MAX) gws_ui.channel = GWS_R1CH_MAX;
 	} else {
-		if (gws_ui.channel < GWS_R0CH_MIN) 	gws_ui.channel = GWS_R0CH_MIN;
-		if (gws_ui.channel > GWS_R0CH_MAX) 	gws_ui.channel = GWS_R0CH_MAX;
+		if (gws_ui.channel < GWS_R0CH_MIN) gws_ui.channel = GWS_R0CH_MIN;
+		if (gws_ui.channel > GWS_R0CH_MAX) gws_ui.channel = GWS_R0CH_MAX;
 	}
 	if (btn == UI_BTN_SET) {
 		ui_screen = UI_PRINT_PAGE_STS;
@@ -625,8 +654,8 @@ static void ui_calc_screen_edit_mode(uint btn)
 		if (gws_ui.mode) gws_ui.mode --;
 		gws_ui.is_data_changed = 1;
 	}
-	if (gws_ui.mode >= GWS_MODE_MAX)			gws_ui.mode = GWS_MODE_MAX;
-	if (gws_ui.mode <= GWS_MODE_MIN)			gws_ui.mode = GWS_MODE_MIN;
+	if (gws_ui.mode >= GWS_MODE_MAX) gws_ui.mode = GWS_MODE_MAX;
+	if (gws_ui.mode <= GWS_MODE_MIN) gws_ui.mode = GWS_MODE_MIN;
 	if (btn == UI_BTN_SET) {
 		ui_screen = UI_PRINT_PAGE_STS;
 		if (gws_ui.is_data_changed) {
@@ -638,9 +667,7 @@ static void ui_calc_screen_edit_mode(uint btn)
 	ui_host_timeout = 0;
 }
 
-
-
-
+// init all values when start up
 static void gws_ui_init(void)
 {
 	uint i;
@@ -664,11 +691,13 @@ static void gws_ui_init(void)
 	}
 	gws_ui.noise	= GWS_NOISE_MIN;
 
-	gws_read_sts.channel = 0;
-	gws_read_sts._noise_ = 0;
-	gws_read_sts.mode = 0;
-	gws_read_sts.txpwr = 0;
+	gws_read_sts.channel 	= 0;
+	gws_read_sts._noise_ 	= 0;
+	gws_read_sts.mode 		= 0;
+	gws_read_sts.txpwr 		= 0;
 }
+
+// convert val to string
 static uchar * gws_mode_get(void)
 {
 	switch(gws_ui.mode) {
@@ -683,9 +712,6 @@ static uchar * gws_mode_get(void)
 			return "Mesh *";
 	}
 }
-
-
-
 
 //* WB Protocol Parser
 //* Parser Cmds
@@ -757,13 +783,13 @@ void wbp_parser(uchar * p_data, uint u_data_length, uint * p_move)
 				//uart_send("parse msg +wbsts\n");
 				if (sscanf(wbp_data, "+wbsts:%d,%d,%d,%d,%d,%d,%d", &_ch, &_noise, &_txpwr, &_mode, &_region, &_chanbw, &_rxgain) != -1) {
 					gws_read_sts.is_data_changed = 1;
-					gws_read_sts.chanbw = (int) (_chanbw > 0 ? _chanbw : 8);
-					gws_read_sts.channel = _ch;
-					gws_read_sts.rxgain = _rxgain;
-					gws_read_sts._noise_ = _noise;
-					gws_read_sts.txpwr = _txpwr;
-					gws_read_sts.mode = _mode;
-					gws_read_sts.region = (_region != 0 ? 1 : 0);
+					gws_read_sts.chanbw 	= (int) (_chanbw > 0 ? _chanbw : 8);
+					gws_read_sts.channel 	= _ch;
+					gws_read_sts.rxgain 	= _rxgain;
+					gws_read_sts._noise_ 	= _noise;
+					gws_read_sts.txpwr 		= _txpwr;
+					gws_read_sts.mode 		= _mode;
+					gws_read_sts.region 	= (_region != 0 ? 1 : 0);
 
 #ifdef UART_PRINT_PARSE_RESULT
 					memset(gws_cmd, 0, sizeof(gws_cmd));
